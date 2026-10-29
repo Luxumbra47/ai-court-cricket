@@ -1,0 +1,17 @@
+node_modules/
+dist/
+dist-server/
+.env
+.env.*
+!.env.example
+.cert/
+.runtime/
+coverage/
+test-results/
+*.log
+*.zip
+*.rar
+*.7z
+*.sha256.txt
+*.tsbuildinfo
+.DS_Store

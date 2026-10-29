@@ -1,0 +1,14 @@
+﻿{
+    "version":  "1.3",
+    "rulesVersion":  3,
+    "caseCount":  12,
+    "evidenceCount":  108,
+    "opportunities":  12,
+    "testsPassed":  339,
+    "mysqlTestsSkipped":  6,
+    "offlineCalibrations":  216,
+    "paidModelCalls":  0,
+    "storage":  "memory",
+    "sourceFilesWithDependencies":  8429,
+    "packaging":  "No runtime, real env, certificate/private key, logs or database data; old versions preserved."
+}

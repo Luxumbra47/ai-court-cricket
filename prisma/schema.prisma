@@ -1,0 +1,101 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @db.VarChar(36)
+  nickname  String   @db.VarChar(24)
+  createdAt DateTime @default(now())
+  players   MatchPlayer[]
+
+  @@map("users")
+}
+
+model Room {
+  id        String   @id @db.VarChar(36)
+  code      String   @unique @db.VarChar(8)
+  status    String   @db.VarChar(20)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  matches   Match[]
+
+  @@map("rooms")
+}
+
+model CaseTemplate {
+  id      String @id @db.VarChar(40)
+  version Int
+  title   String @db.VarChar(100)
+  data    Json
+  matches Match[]
+
+  @@map("case_templates")
+}
+
+model Match {
+  id          String   @id @db.VarChar(36)
+  roomId      String   @db.VarChar(36)
+  caseId      String   @db.VarChar(40)
+  caseVersion Int
+  caseSnapshot Json?
+  status      String   @db.VarChar(20)
+  result      Json?
+  startedAt   DateTime @default(now())
+  endedAt     DateTime?
+  room        Room     @relation(fields: [roomId], references: [id])
+  case        CaseTemplate @relation(fields: [caseId], references: [id])
+  players     MatchPlayer[]
+  events      MatchEvent[]
+  calls       LlmCall[]
+
+  @@map("matches")
+}
+
+model MatchPlayer {
+  id           String @id @default(uuid()) @db.VarChar(36)
+  matchId      String @db.VarChar(36)
+  userId       String @db.VarChar(36)
+  side         String @db.VarChar(20)
+  identity     String @db.VarChar(20)
+  provider     String @db.VarChar(30)
+  model        String @db.VarChar(120)
+  publicConfig Json
+  match        Match  @relation(fields: [matchId], references: [id])
+  user         User   @relation(fields: [userId], references: [id])
+
+  @@unique([matchId, side])
+  @@map("match_players")
+}
+
+model MatchEvent {
+  id       String @id @default(uuid()) @db.VarChar(36)
+  matchId  String @db.VarChar(36)
+  sequence Int
+  data     Json
+  match    Match @relation(fields: [matchId], references: [id])
+
+  @@unique([matchId, sequence])
+  @@map("match_events")
+}
+
+model LlmCall {
+  id            String @id @db.VarChar(36)
+  matchId       String @db.VarChar(36)
+  side          String @db.VarChar(20)
+  provider      String @db.VarChar(30)
+  model         String @db.VarChar(120)
+  attempt       Int
+  status        String @db.VarChar(40)
+  inputTokens   Int
+  outputTokens  Int
+  durationMs    Int
+  estimatedCost Decimal? @db.Decimal(14, 8)
+  match         Match @relation(fields: [matchId], references: [id])
+
+  @@map("llm_calls")
+}
