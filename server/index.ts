@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
-import { createCourtServer } from './app.js';
+import { createCourtServer } from './whisper-app.js';
 
 try {
   const server = await createCourtServer();
@@ -16,10 +16,10 @@ try {
   }
   const port = Number(process.env.PORT || 3001);
   const host = process.env.HOST || '127.0.0.1';
-  server.http.listen(port, host, () => console.log(`AI court server: http://${host}:${port} (${server.store.mode})`));
+  server.http.listen(port, host, () => console.log(`Whisper Agents: http://${host}:${port}`));
   const shutdown = async () => { await server.close(); process.exit(0); };
   process.once('SIGINT', shutdown); process.once('SIGTERM', shutdown);
 } catch {
-  console.error('Server startup failed. In mysql mode, check DATABASE_URL and run npm run db:migrate. No match was started.');
+  console.error('Whisper Agents could not start. Check whether the configured port is available.');
   process.exitCode = 1;
 }

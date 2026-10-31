@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 if (!existsSync(new URL('../dist-server/server/index.js', import.meta.url))) {
-  console.error('Please run npm ci, npm run db:generate, npm run build first.');
+  console.error('Please run npm ci and npm run build first.');
   process.exit(1);
 }
 const first = Number(process.env.PORT || 3001);
@@ -21,7 +21,7 @@ for (const port of [...new Set([first, ...Array.from({ length: 10 }, (_, i) => 3
 }
 if (!selected) { console.error('No local port available (3001 / 3011..3020).'); process.exit(1); }
 const origins = [process.env.ALLOWED_ORIGINS, `http://localhost:${selected}`, `http://127.0.0.1:${selected}`].filter(Boolean).join(',');
-console.log(`\nAI Court V1.3 cases & turn tactics - open http://localhost:${selected}/\nKeep this window open. HTTP is for free preset play; real API keys require HTTPS.\n`);
+console.log(`\nWhisper Agents - open http://localhost:${selected}/\nKeep this window open. Local strategy play is free; real API keys require HTTPS.\n`);
 const child = spawn(process.execPath, ['dist-server/server/index.js'], { cwd: root, stdio: 'inherit',
   env: { ...process.env, HOST: '127.0.0.1', PORT: String(selected), ALLOWED_ORIGINS: origins } });
 child.on('exit', code => { process.exitCode = code ?? 1; });

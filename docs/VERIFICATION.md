@@ -1,142 +1,169 @@
-# V1.1 对局体验重构验收 · 2026-10-29
+# 验证记录 · 2026-10-31
 
-- 自动化：217 项通过，6 项隔离 MySQL 测试跳过；包含三案完整八次手动行动、旧版本复盘、重复提交、越权、超时/预算/JSON 降级、在途断线、结算写入期间恢复及中止竞争。本轮未连接或迁移 MySQL。
-- 三案均为自己的固定证据来源，钻石案为虚拟资产转移。新案件版本 4，绑定不可变快照；新增失配测试确认不调用下一模型、不继续扣资源、不产生判决。21 份材料的公开解释不包含隐藏评分字段。
-- 实际双人 HTTPS 浏览器房间 SJFEFZ：免费预设，辩方出示自动计划 −15，控方出示账户权限 +18，辩方质疑登录 −11，控方组合转移与权限 +7，辩方强势反驳 −7，控方强势追问 +6，辩方逻辑总结 −2，控方冒险陈词 +4（骰值37/阈值60）。48→33→51→40→47→40→46→44→48，阈值64，程序判辩方胜。
-- 上述八次均从界面明确确认；第1次在390窄布局中用确认按钮的 Enter 键提交。双方外部请求、Token 和费用均为0；最终冷静值控方85、辩方89，报告与行动记录一致。切换证据、战术及尺寸时没有自动产生行动。
-- 实际向上阅读历史后，下一条发言到来仍保持 scrollTop=0，并显示“1 条新发言 · 回到最新”；刷新在4/8处恢复同一房间及分数47，没有重复提交。
-- 实际第二局披萨房间7TR3AW没有钻石证据残留。质疑帽子证词 −9 后，结算明确解释“同款帽子不能唯一识别人”。对方主动确认退出后，仅显示中止原因、保留1次行动，没有确认出招或判决入口，返回大厅成功。
-- 精确尺寸通过临时同源 iframe 中的真实游戏检查。浏览器自身的尺寸覆盖接口未生效，故不将其当成真机测试。1440×900、1280×720、390×844 的文档尺寸分别等于视口，无横向/整页纵向溢出；确认条底部875.32、695.33、821.33，私证提醒底部814.32、634.33、760.33，均处于对应视口内。选中的私人材料在尺寸和面板切换后仍保持，行动数始终为1。
-- 截图使用可用的视口截取：桌面1280×720、判决报告、中止界面；390窄布局截图只截取上方720像素，完整844高度及确认条位置由上述实际DOM测量验证。临时尺寸验收页面已删除，不交付。
-- 发现并修复 Vite 原本可以直接返回 `/server/cases.ts` 的问题：访问由200变为403；本机 TLS 脚本同时检查普通路径、`/@fs/` 绝对路径、测试与私钥路径均被拒绝，避免开发服务泄露隐藏案件。
-- 常用 HTTPS 入口 `https://localhost:5173` 已切换到新版；切换前确认旧服务和验收实例均为0个房间。后端实际从桌面 V1.1 目录的构建产物启动在3033，前端与交付源码哈希对应。生产HTML为200，HTTPS健康信息包含 `experience: 1.1`，本机 TLS 回归通过。旧桌面版本与旧压缩包保留。
-- 实际付费模型质量、实体手机触摸及公网部署未执行；自由文本结构约束与已知越界引用检查不构成完整的语义事实证明。
+本轮完成四个阶段：
 
-截图：[桌面庭审](screenshots/v11/desktop-court.png)、[窄屏上半屏](screenshots/v11/mobile-390-viewport.png)、[判决报告](screenshots/v11/report.png)、[中止状态](screenshots/v11/aborted-court.png)。详细变更见 [V1.1 更新说明](V1.1-UPDATE.md)。
+- **玩法减法**：自动演出 + 暂停/恢复、每幕 3 次交锋 + 1 次回应（共 12 次行动）、私密方针卡与公开卡。
+- **场景 P0**：三议题布景、三幕气氛、对手公开反应、程序化环境音、结束仪式。
+- **隐藏副目标**：每个议题双方各一个不同副目标，对局中仅本人可见，赛后揭晓，达成 +5 心理分。
+- **桌面交易重做**：常驻 12 枚筹码盘、小托盘物件与纸签、交易手摆放/收回、成交交接与封蜡、去掉循环底噪，并新增可公开检查的 `data-*` 状态。
 
----
+服务端计分主体、底线生成、市场抽取、阶段顺序、语音接口和私密隔离未改。本阶段只改 3D 表现与本地音效；对局舞台仍只有全屏 3D。
 
-# 配置自动沿用验收 · 2026-10-29
+## 自动化
 
-- `npm test`：199 项通过，6 项隔离 MySQL 测试跳过；`npm run build`（含 TypeScript、前后端构建）通过。本次未连接或迁移 MySQL。
-- 新增真实 Socket.IO 检查：新建/加入后续房间自动恢复模型、风格、装备及服务器暂存 Key；刷新/重连恢复；结束/取消后重建恢复；未知凭据、新访客及 HTTP 均不能继承真实 Key；过期与主动清除生效。结束房间自身不会重新装入密钥。
-- 新房间始终未准备，恢复配置不会测试连接、生成发言、自动提交行动或改变费用统计。使用 FakeModels 验证复用的密钥与原配置一致，不调用厂商。
-- 桌面交付目录 `npm run test:tls` 通过：证书验证、HTTPS/WSS、私有密钥提交、跨房间自动恢复及清除。仅使用无效占位密钥，未发起厂商请求。
-- 实际 HTTPS 浏览器：在独立验收标签创建披萨房间 7JFAZG，保存 DeepSeek/deepseek-chat 占位配置；离开后创建钻石房间 K8RYE8，自动显示“已保存配置”和沿用提示；刷新后仍为 K8RYE8，准备按钮可用，Key 输入框提示“已保存密钥，留空即可复用”。全程未点击连接测试或开始对局，不产生真实 API 费用。
-- Key 保存在服务器内存，配置凭据按标签页隔离放在 sessionStorage，不在 localStorage/数据库/URL 中保存 Key；连续 12 小时未使用、清除或服务器重启后失效。升级前旧版已经清除的 Key 无法恢复，首次需要重新保存。
-- 同时修复取消房间返回首页时没有释放服务端席位的退出路径，确保随后可以重建房间。
+- `npm run typecheck`：通过。
+- `npm test`：5 个测试文件，60 项通过（新增 `tests/objectives.test.ts` 14 项）。
+- `npm run build`：TypeScript、Vite 前端与服务端生产编译通过；主包约 341KB（gzip 约 108KB），3D 懒加载分块约 998KB（gzip 约 268KB）。
+- 浏览器与测试中的模型适配器均为免费本地策略或本地注入实现，没有调用付费端点。
 
-截图：[重建房间自动沿用](screenshots/config-memory/rebuilt-room.png)。
+测试覆盖：
 
----
+- 完整三幕每幕 3 次交锋 + 1 次回应，共 12 次；双方无输入自动完成、私密隔离、重复提交、查验资源、承诺与信任、席位认证与恢复、退出中止、HTTP 密钥拒绝、模型非法输出、超时及接管。
+- 七类行动的结构化类型、执行结果、明确目标与角色状态映射；发言与结果关联为同一演出单元，重复事件去重。
+- 无效报价不生成报价卡；未成立质疑的公开谈判桌渲染明确失败，保留声明与凭证；未验证声明不携带真假字段。
+- 单方新报价不覆盖有效协议；公开事件序列化后重建、按行动回看、历史承诺快照与实际违约关联。
+- 服务端门闩：双方确认、重复确认、旧确认、断线兜底、陪练豁免、无定时自动放行；自动确认只在客户端发生。
+- 私密方针卡：服务端拒绝未知值、拒绝公开阶段携带方针，允许留白或仅方针；本地策略区分守价、试探、施压、成交，并在汇报中说明理解。
+- 公开卡：承诺只绑定本方当前报价，违约仍扣信任与心理分；施压成为双方可见的结构化公开事件且不加分；表态保持原公开记录。
+- 六个副目标的达成与未达成：声明未被反证 / 被成功反证、`challenge.upheld`、第二幕前首次协议、有效查验、带价格承诺守约 / 违约、成交余量 / 未成交。
+- `project` 只投影本人副目标，对局中不含 `achieved/detail`；对端 `RoomView` 不含对方副目标；`Outcome.objectives` 赛后揭晓。
+- 达成 +5 心理分、未达成 0 分，仲裁分与主交易收益不变；信任归零判负仍优先。
+- 公开 `scenario`、公开事件与 Socket 数据不含副目标、私密汇报或底线；模型提示只含本方副目标并要求不公开复述。
 
-# 案件与庭审体验优化验收 · 2026-10-29
+## 真实浏览器
 
-- 自动化：193 通过，6 项隔离 MySQL 测试跳过。TypeScript 与前后端生产构建通过。测试全部使用 Mock/预设，不产生真实模型费用。
-- 数据审核：diamond-002 为虚拟钻石转移案。七条 D 系证据均由 server/cases.ts 的该案模板产生；房间只持有当前 caseId，切换只在准备阶段允许；前端使用整份服务器视图，不合并其他案证据。新增测试覆盖披萨→机器人→钻石切换，无残留。
-- 三案共 21 条证据保留原有事实、ID、评分参数与关联，新增通俗名称、事实描述、含义、可折叠原始记录。客户端不接收 reliability/strength/flaw/linkedIds。
-- 公开、正式出示、曾被质疑、已复核、当前可选分别投影。首次出示公开材料有效；出示后双方均不能重复。调查公开材料不自动等同出示。
-- 实际双人浏览器房间387TDM，两个独立游客，免费预设：放大镜检查自动计划 −3 → 首次出示公开转移记录 +18 → 出示已公开自动计划 −15 → 出示账户权限 +18 → 质疑登录记录 −11 → 组合转移与权限 +7 → 双方逻辑总结 −2/+2。48→45→63→48→66→55→62→60→62，最终辩方胜（阈值64）。八次均点确认，无自动代打。双方调用/Token/费用均0。
-- 第一次检查后，自动计划显示“双方可见、未出示、已复核”，且辩方新发现的许可单不出现在控方页面。之后可首次出示自动计划并计分；已出示转移记录从双方举证选项移除。
-- 桌面实际1063×871，页面高871且无水平溢出。实录、证据与行动内容各自滚动；修复 fieldset 聚焦引起的面板滚偏，确认按钮固定可见。
-- 窄屏：内置浏览器视口开关仍不生效，因此使用本地临时同源 iframe，真实内容视口390×844（DOM测量确认），scrollWidth390、scrollHeight844；实际切换证据页，查看说明，在390宽选中管理员登录记录并确认质疑，按钮bottom821.33<844。属于真实浏览器窄布局检查，不是实体手机测试。临时预览文件不交付。
-- 刷新与布局切换恢复同一房间/进度，不自动提交。报告显示八次结果与程序分数一致。
-- 服务层测试新增：正文中的合法ID转换为名称，跨案件ID、隐藏名称、机械规则复述被拒绝、有限重试后采用本次行动的自然备用台词。结构化指令仍严格匹配。
-- 旧快照回放新增 legacy-turn-game.ts 保留原回合制规则；旧事件不重写。表结构无变化，本轮没有连接/迁移 MySQL，也没有实际调用付费厂商或验证公网HTTPS。
+使用已安装的 Playwright CLI，在本地生产构建上运行：
 
-截图：[桌面确认面板](screenshots/evidence-ui/desktop-action.jpg)、[窄屏确认面板](screenshots/evidence-ui/mobile-action.jpg)、[证据与庭审](screenshots/evidence-ui/desktop-court.jpg)、[赛后报告](screenshots/evidence-ui/report.jpg)。
+```powershell
+playwright-cli -s=immersive open http://localhost:3010
+playwright-cli -s=immersive run-code --filename=scripts/immersive-browser-check.js
+playwright-cli -s=immersive run-code --filename=scripts/immersive-unsupported-check.js
+playwright-cli -s=scene open http://localhost:3010
+playwright-cli -s=scene run-code --filename=scripts/immersive-scene-check.js
+playwright-cli -s=trade open http://localhost:3010
+playwright-cli -s=trade run-code --filename=scripts/trade-table-check.js
+```
 
----
+### 自动演出、暂停与双页同步
 
-# V2.0 回合制验证记录 · 2026-10-29
+`immersive-browser-check.js` 返回 `passed: true`，`actions=12`，`pageerror` 与控制台错误为 0。脚本没有点击任何门闩。
 
-本节为首次回合制交付的历史记录，最新体验优化验收见文件开头。
+- 双方提交私密方针卡后，自动演出自行产生首个 AI 行动；对端同步收到。
+- 点击“暂停演出”后，门闩停在“继续”；对端显示“等待对方继续”。等待 1.6 秒期间两页行动数不变，没有重复确认或重复播放。
+- 点击“恢复演出”后继续自动演出，两页行动计数与阶段保持一致。
+- 三幕 12 次行动后自动结束，双方状态均为 `finished` 并生成赛后结果。
+- 抽屉打开时自动演出暂停，关闭后恢复；抽屉遮罩底边 810，门闩顶边 816，门闩按钮仍可点击。
+- 私密备注 `守价暗号` 未出现在对端 Socket.IO 数据或对端 DOM；包厢显示“本幕方针：守价”，代理人汇报包含对“守价”的解读。
+- 公开承诺与公开施压分别成为双方可见的公开事件；公开卡未引入新计分。
 
-- 自动测试：182 项通过，独立 MySQL 的 6 项跳过。测试不调用真实付费模型。
-- 桌面打包目录通过自己的启动器在 http://localhost:3012 启动；健康接口确认2.0.0/player_command，前端HTML与JS均HTTP 200。交付目录不含.env、.pem、.key、.log或.cert/.runtime。
-- TypeScript 检查和前后端生产构建通过。MySQL 表结构未修改，未执行用户数据库迁移。
-- 新局开局、等待、刷新、重连和补密钥不会自动调用；仅 game:submit_action 驱动一次表达与结算。
-- 两个独立浏览器游客会话在生产构建完成一局披萨案：八次主动提交，辩方先手；冒险举证、强势反驳、双证关联、质询、强势陈词和冒险陈词均实际选择及结算。最终分数 35/阈值60，辩方胜。双方外部模型请求、Token 和费用为0。
-- 开局观察0/8；玩家未确认前无发言；刷新恢复第3轮4/8且等待本人选择，没有重复提交草稿。
-- 私证 P04 使用前显示公开警示，结算后才进入双方公开证据；其他私证不随事件公开。
-- 自动化覆盖三案双方可胜的有效路径、记录骰值复盘、篡改检测、幂等并发、越权、超时/格式/预算降级、在途掉线和取消/最终数据库写入竞争。
-- 修复对局中恢复 Key 输入框误禁用，使用实际组件渲染检查密钥可输入、模型仍锁定。
-- 桌面浏览器实际宽1280，页面 scrollWidth与clientWidth均1265，无页面横向溢出。
-- 窄屏实现了独立标签页布局，但未完成真实390宽验收：内置浏览器viewport设置未生效，返回宽1280；Windows浏览器操作随后因无法可靠识别当前URL而停止。没有通过其他自动化绕过此限制。
-- 真实付费模型、实时厂商兼容性、HTTPS公网部署、本轮隔离MySQL写入均未执行。
+### 3D 全屏舞台
 
-截图：[桌面行动面板](screenshots/turn-based/desktop-action.jpg)、[完整赛后报告](screenshots/turn-based/report.jpg)。
+- 对局只有全屏 3D，未渲染 `.theatre` 2D 舞台，也没有布局切换入口。
+- `.negotiation-scene` 为 `position: fixed`，3D 画布与视口一致，`documentElement.scrollHeight` 等于视口高度，无外层滚动条。
+- 1440×900：字幕底边 806，门闩顶边 816，按钮底边 881，`elementFromPoint` 命中按钮中心。
+- 1920×1080：画布 1920×1080，按钮底边 1061，字幕底边 986。
+- 1280×720：画布 1280×720，门闩 y=636，按钮底边 701，字幕底边 626；顶部 HUD、字幕和“继续”均完整可见。
 
-## 主要文件变更
+| 窗口 | 画布 | HUD 高 | 门闩顶边 | 按钮底边 | 字幕底边 | 外层滚动 |
+|---|---:|---:|---:|---:|---:|---|
+| 1440 × 900 | 1440 × 900 | 62 | 816 | 881 | 806 | 无 |
+| 1920 × 1080 | 1920 × 1080 | 62 | 996 | 1061 | 986 | 无 |
+| 1280 × 720 | 1280 × 720 | 62 | 636 | 701 | 626 | 无 |
 
-- 回合和规则：server/app.ts、server/game.ts、server/cases.ts、shared/types.ts。
-- 单指令AI表达：server/llm.ts；server/legacy-game.ts只读兼容旧规则。
-- 前端：App、CourtPage、ReportPage、ActionPanel、PlayerCard/Rules、frontend工具、main、turn.css；首页和房间只更新引导文案；ConfigPage恢复密钥输入。
-- 预设表达：shared/providers.ts更新说明及模型标签，保留19家国内服务商。
-- 测试：game、server、llm、frontend、database及helpers；保留providers/preferences安全回归。
-- 启动与文档：scripts/start-local.mjs、启动游戏.cmd、package版本/启动命令、.env.example、README、RULES、本记录及打包说明。
+### 场景与声音
 
-## 执行过程与兼容
+使用 `scripts/immersive-scene-check.js` 对三个议题分别创建练习局；三个页面均返回 `layout=full`、`canvas=true`、`theatre=false`，浏览器错误为 0：
 
-旧advance循环、递归续跑、回合延迟计时器、模型自动选招和createScriptedAction均已移除。旧版applyAction/createGame仅在legacy-game中服务于历史回放，没有Socket、LLM或游戏入口。
+- `last-battery`：`data-scene=last-battery`，`data-act=1`，可见暴雨窗光、应急灯、电池箱与积水反光。
+- `last-ferry`：`data-scene=last-ferry`，`data-act=1`，可见港口雾、船钟、潮汐钟与货箱。
+- `silent-archive`：`data-scene=silent-archive`，`data-act=1`，可见档案架、台灯、封存袋与灰尘。
+- 顶栏“环境音”按钮可关闭/开启，`aria-pressed` 同步变化，偏好写入 `whisper-ambience-enabled`；三个页面均无 Web Audio 自动播放报错或外部请求。
 
-新状态由服务器持有：等待指令→生成→保存结算→下一方等待；最终第8步后程序判决。准备阶段、配置中心、游客会话和历史数据库均保留。事件JSON新增command、actorId、时间、随机、资源等字段，案件快照engineVersion=2，无新迁移。
+场景实现核对：
 
----
+- 第 1/2/3 幕使用 `MOODS` 三档色温、顶光角度、对比度与曝光；结束时画面明显比第 1 幕更暖、更亮。刷新进入当前幕直接呈现，不重播幕间过渡。
+- 对手反应只读取公开 `ActionUnit`：有效质疑、质疑未成立、查验、成交、违约、暂缓分别对应前倾、后仰、靠近桌面、点头、收手、靠回椅背。
+- 结束仪式：成交时合同纸滑入桌中央并出现金色封蜡；未成交时文件收拢、灯光逐盏熄灭；减少动态效果时直接呈现最终状态。
+- 环境音由 Web Audio 程序化生成，朗读期间自动压低；组件卸载、对局结束和页面隐藏时停止。
+- 音频经代码、UI 状态和浏览器错误检查验收，未做波形录制；对手反应与结束仪式的逐帧细节以截图和实现核对，未做像素级自动断言。
 
-# 实际验证记录
+### 隐藏副目标
 
-## V1.1 修复与国内 API 目录
+本局《最后一块电池》：
 
-2026-10-28 在原项目中完成，不覆盖原桌面 V1.0 压缩包。
+- 甲方 `credible-claim` 未达成（声明被成功反证，29 分）。
+- 乙方 `refute-claim` 达成（心理分 +5，46 分获胜）。
+- A 包厢显示自己的副目标标题、说明与“达成 +5 心理分”，看不到 B 的；B 包厢反之。
+- A/B 的 `room:update` 载荷互不含对方副目标；公开事件、公开舞台、3D DOM 与顶栏均不含副目标文本。
+- 点击“赛后复盘”后，“隐藏副目标”区块显示双方标题、`达成 · 心理分 +5` / `未达成` 与判定依据。
 
-- `npm test`（设置专用 `TEST_DATABASE_URL`）：**167/167** 通过，包括规则 25、LLM 50、国内厂商 48、Socket.IO 29、偏好保存 9、MySQL 6。
-- `npm run typecheck`、`npm run build` 通过；`npm audit --audit-level=moderate` 报告 0 个已知漏洞。
-- 浏览器实际点击验证：未配置模型密钥即可选择身份/道具并保存至准备页；模型保存后更换身份和道具，模型 ID 保持不变且准备按钮可用；模型 ID 前后空格经服务端规范化后不会残留未保存状态。
-- 新独立浏览器会话读取了之前已保存的模型偏好，未读取其他会话的密钥。双方用不同模型标签与策略完成八次自动行动，均得到 **38 / 60，辩方胜诉**。
-- `npm run test:tls` 在真实本地 HTTPS/WSS 通道、准确校验证书的条件下通过：提交一次固定测试密钥、独立保存科学家和道具、随后只传空密钥更换同平台模型，服务端仍正确配置；公开返回不含测试密钥。该脚本未调用任何模型 API。
-- UI 和服务端均移除通用服务商 ID，提供 19 家国内厂商。每家路由、鉴权头、输出上限及必要厂商参数通过模拟 HTTPS 请求检查；资料与限制见 [服务商矩阵](PROVIDERS.md)。没有以模拟结果代替真实账户在线连通或账单验证。
+### 桌面交易重做
 
-![模型与装备独立保存后可正常准备](screenshots/v1.1-loadout-ready.jpg)
+`scripts/trade-table-check.js` 返回 `passed: true`（练习局《最后一块电池》，2×）：
 
-![修复后的完整对局结算](screenshots/v1.1-match-report.jpg)
+- 开局 `.stage-3d` 为 `data-chips=12`、`data-lot=last-battery`、`data-offer=none`、`data-agreement=none`、`data-trade=idle`；1920/1440/1280 画布均与视口一致，无外层滚动。
+- 报价 `a:9`：`data-offer=a:9`，`data-trade` 依次为 `place → idle`；换价时 `withdraw → place → idle`。桌面显示 9 枚筹码、纸签“报价 9 枚”，剩余 3 枚留在“桌面筹码”盘内。
+- 中途协议 `7`：`data-agreement=7`，协议卡显示“有效协议 · 待执行 / 合同已封存 · 物件尚未交付”与“待执行”封签；备用电池仍在卖方托盘，筹码转旧金并显示“协议 7 枚”。
+- 成交 `8`：`data-trade=handoff` 持续约 850ms，结束后 `data-trade=idle`、`data-ceremony=deal`；筹码位于卖方侧、备用电池位于买方侧并显示“备用电池 · 已交付”，合同纸与金色封蜡落在桌面远端，双方名牌变亮。
+- 音频审计：13 个 `AudioBufferSource` 与 28 个 `OscillatorNode` 全部调用 stop，`loops=0`；无 mp3/wav/ogg/m4a 等外部请求；朗读压低仍生效。
+- 浏览器 pageerror / console error 均为 0。
 
-## V1.0 首次交付记录
+**未成交结束**（双人房间 `UHCEMX`，双方“锋利”性格、每幕递交“守价”）：结果为 `outcome.price=null`、`data-ceremony=fail`，`data-trade` 从 `return` 回到 `idle`；12 枚筹码回盘、备用电池回到卖方托盘、没有合同/封蜡，灯光渐熄。该分支取决于本地策略的成交意愿，练习局几乎总会成交；这是本轮唯一未能由常规练习局稳定复现的验收项，截图来自上述双人房间实测。
 
-验证日期：2026-10-28。项目位置：`D:\Program Files (x86)\project`。工作目录原本为空，本轮没有覆盖其他项目。
+**减少动态效果**：`last-ferry` 与 `silent-archive` 两个练习局在 `whisper-reduce-motion=true` 下全程 `data-trade=idle`，未记录到 `place / withdraw / handoff`；筹码与物件直接出现在最终位置，无手部移动，浏览器错误为 0。
 
-| 检查 | 结果 |
-| --- | --- |
-| `npm test`（设置专用 TEST_DATABASE_URL） | 103/103 通过：规则 25、模型适配器 50、Socket.IO 22、MySQL 6 |
-| `npm run typecheck` | 通过 |
-| `npm run build` | 通过，生成 React 静态资源和可运行 Node ESM 后端 |
-| `npm audit --audit-level=moderate` | 0 个已报告漏洞，基于本次安装的锁文件和当时的审计数据 |
-| `npm run db:generate` | Prisma 6.12.0 客户端生成成功 |
-| `npm run db:migrate` | 两个迁移在独立 MySQL 8.0.45 数据库成功执行 |
-| `npm run db:seed` | 三个固定模板写入成功 |
-| `npm run dev:https` + `npm run test:tls` | 通过：信任本项目生成的确切 CA 证书，验证 HTTPS API、WSS 以及私有配置提交；没有禁用证书验证 |
-| 双独立浏览器会话 | 创建、加入、保存不同配置、角色选择、准备、八次自动行动、反驳、判决和一致的赛后报告通过 |
-| 生产构建运行 | `npm start` 成功提供首页、API、Socket.IO；默认内存试玩 |
+**完整对局与同步回归**：`immersive-browser-check.js` 返回 `passed: true`、`actions=12`。暂停后门闩停在“继续”，对端显示“等待对方继续”，恢复后两页继续自动演出并保持一致；1440/1920/1280 门闩按钮均可点击；私密备注与隐藏副目标未泄漏；浏览器错误为 0。`immersive-scene-check.js` 三个议题均为 `layout=full / canvas=true / theatre=false`，环境音开关与 `whisper-ambience-enabled` 持久化正常；`immersive-unsupported-check.js` 仍只显示不可用提示。
 
-规则测试另枚举 144 组案件/性格/策略/身份组合，完成 1,152 次合法行动并复盘；能产生双方不同的胜诉结果。判决依赖规则和公开行动，不以模型自述为准。
+### 不可用回落
 
-Socket.IO 测试通过真实本地网络端口运行，但模型使用模拟适配器。包含满房、未认证连接、相同/不同模型、跨服务商独立密钥、私有证据、无效会话、断线重连、密钥清理、超时清理、服务重启、并发创建、取消与数据库写入竞态。可信回环代理的 `https`、`wss` 标记可以提交配置，`http`、`ws` 不接受真实密钥配置。
+`immersive-unsupported-check.js` 返回 `passed: true`：
 
-模型测试不需要真实 Key，不产生外部调用费用。覆盖请求体、各自的鉴权头、JSON 校验、上游错误脱敏、超时、取消、最多一次重试、全局两次重试及十次请求限制、每日持久预算和接口地址限制。DNS 检查与固定解析地址、私网地址和重定向拒绝通过模拟 HTTPS 传输验证。
+- 窗口 800×900 只显示“3D 舞台不可用”，3D 画布卸载、无 2D 舞台、无横向溢出；回到 1440×900 后恢复。
+- WebGL 不可用与 3D 分块加载失败两种模拟都只显示不可用提示，不渲染 2D 舞台。
 
-MySQL 验证使用本轮新初始化、仅监听回环 3308 的独立实例与 `court_test` 专用库。没有读取现有 MySQL 业务库的配置、密码或数据。该临时实例已在测试后关闭，原有 MySQL80 服务保持运行。验证了公开数据投影不保留测试密钥、八次行动和调用记录、不可变规则快照、判决复现、重启中止及取消后移除未提交判决。默认启动不依赖此测试库。
+## 实际截图
 
-浏览器中完成过《消失的披萨》的双人预设对战：38 / 60，辩方胜诉。双方看到一致结果，公开记录八次行动，模型请求与费用为零，明确标记预设台词。构建后的服务还完成了《机器人与休假记录》的双人同模型、不同策略对局：43 / 62，辩方胜诉，双方报告一致。
+- [全屏 3D · 甲方席位 1440×900](screenshots/immersive-seat-a-1440.png)
+- [全屏 3D · 乙方席位 1440×900](screenshots/immersive-seat-b-1440.png)
+- [全屏 3D · 1920×1080](screenshots/immersive-1920.png)
+- [全屏 3D · 1280×720](screenshots/immersive-1280.png)
+- [幕后包厢与方针卡](screenshots/immersive-backstage-1440.png)
+- [暂停后停在门闩](screenshots/immersive-paused-1440.png)
+- [包厢打开时门闩仍可点击](screenshots/immersive-backstage-gate-1440.png)
+- [桌面档案抽屉](screenshots/immersive-archive-1440.png)
+- [公开低语与公开卡](screenshots/immersive-public-whisper-1440.png)
+- [自动演出结束](screenshots/immersive-final-1440.png)
+- [桌面交易开局 1440×900](screenshots/trade-open-1440.png)
+- [桌面交易开局 1920×1080](screenshots/trade-open-1920.png)
+- [桌面交易开局 1280×720](screenshots/trade-open-1280.png)
+- [报价与手部摆放](screenshots/trade-offer-1440.png)
+- [报价落位 1440×900](screenshots/trade-settled-1440.png)
+- [报价 1920×1080](screenshots/trade-offer-1920.png)
+- [报价 1280×720](screenshots/trade-offer-1280.png)
+- [换价收回旧筹码](screenshots/trade-change-1440.png)
+- [中途协议 · 待执行](screenshots/trade-agreement-1440.png)
+- [成交交接与封蜡](screenshots/trade-deal-1440.png)
+- [未成交结束](screenshots/trade-fail-1440.png)
+- [减少动态效果 · 船票报价](screenshots/trade-reduced-offer-last-ferry-1440.png)
+- [船票成交](screenshots/trade-deal-last-ferry-1440.png)
+- [档案成交](screenshots/trade-deal-silent-archive-1440.png)
+- [练习局零点击自动结束](screenshots/immersive-practice-final-1440.png)
+- [电池议题场景](screenshots/scene-last-battery-act1.png)
+- [船票议题场景](screenshots/scene-last-ferry-act1.png)
+- [档案议题场景](screenshots/scene-silent-archive-act1.png)
+- [包厢中的隐藏副目标](screenshots/objective-backstage-1440.png)
+- [赛后复盘揭晓双方副目标](screenshots/objective-report-1440.png)
+- [800px 窄屏不可用提示](screenshots/immersive-unavailable-800.png)
+- [WebGL 不可用提示](screenshots/immersive-nowebgl-1440.png)
+- [3D 分块加载失败提示](screenshots/immersive-load-failure-1440.png)
 
-![双人对局结算](screenshots/match-report.jpg)
+## 范围与限制
 
-![生产构建结算](screenshots/production-report.jpg)
-
-未执行真实 DeepSeek/第三方模型付费调用，没有验证任一真实 Key、余额、当前模型 ID 或实际账单；没有执行 Docker Compose 或公网 HTTPS 部署。它们需要在相应环境使用玩家自己的配置验证，不能用以上测试代替。
-
-## 身份与道具记忆更新（2026-10-28）
-
-- 下一步按钮与保存 AI 配置按钮使用相同的全宽尺寸；浏览器实测均为 425.76 × 45 像素。
-- 身份与道具选中即保存到本机浏览器偏好；关闭标签页后新开页面、创建新房间，科学家与所选三件道具正确恢复，无需先点击保存装备。房间装备仍需确认保存后生效。
-- 装备偏好只保存身份及道具编号，非法编号、重复道具、超过三件及损坏数据会忽略；存储不可用时仍可继续选择。
-- 本次偏好测试 11 项全部通过，生产构建及 TypeScript 检查通过；未调用真实模型。
+- 对局舞台仍只提供全屏 3D 第一视角；窗口宽度小于 900px、WebGL 不可用或 3D 加载失败时显示不可用提示，不提供 2D 兜底。
+- 本阶段只改 3D 表现与本地音效，未改服务端规则、计分、阶段、行动数、AI、门闩与私密隔离；自动推进仍只发生在客户端。
+- 私密方针、备注与隐藏副目标只进入本方代理人状态；公开卡只产生公开事件。
+- 场景仍使用程序化低模和 Web Audio，不引入外部 GLB、音频文件或新依赖。
+- 无成交结束在本地策略练习局中难以稳定复现，本轮使用双人“守价 + 锋利”房间验证；该分支仍属于概率性验收。
+- 未做音频波形录制与像素级 3D 断言；以 Web Audio 节点审计、公开 `data` 属性与真实截图验收。手部动作是纯表现层，不改变行动数、门闩或玩家点击次数。
+- 真实付费端点未调用；房间仍为服务器内存会话，服务重启需要新建对局。
+- 分栏 3D、经典 2D、`whisper-layout-mode` 与旧 2D 浏览器脚本已移除，旧 `negotiation-*` 截图仅作为历史留存。

@@ -1,169 +1,73 @@
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from 'react';
-import type { AiConfig, OwnAiSettings } from '../shared/types';
-import { PROVIDER_PRESETS } from '../shared/providers';
-import { sameModelSettings, saveModelPreferences, saveLoadoutPreferences } from './preferences';
-import { Dialog, Rules } from './components/ui';
-import { newConfig, type Route, type View } from './frontend';
-import { useCourtSession } from './hooks/useCourtSession';
-import { useWorkspaceNavigation } from './hooks/useWorkspaceNavigation';
+import { useEffect, useRef, useState } from 'react';
+import { useGameSession } from './hooks/useGameSession';
 import HomePage from './pages/HomePage';
 import RoomPage from './pages/RoomPage';
-import ConfigPage from './pages/ConfigPage';
 import CourtPage from './pages/CourtPage';
 import ReportPage from './pages/ReportPage';
+import Modal from './components/Modal';
+import ConfigModal from './components/ConfigModal';
+import Icon from './components/Icon';
 
-const tabs: { view: View; label: string }[] = [
-  { view: 'room', label: '房间准备' }, { view: 'config', label: 'AI 配置' },
-  { view: 'court', label: '庭审实录' }, { view: 'report', label: '赛后报告' },
-];
-
+function readPreference(key: string, fallback: string) { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } }
+function detect3d() {
+  try {
+    if (typeof window === 'undefined' || !window.matchMedia('(min-width: 900px)').matches) return false;
+    const canvas = document.createElement('canvas');
+    return !!(canvas.getContext('webgl2') || canvas.getContext('webgl'));
+  } catch { return false; }
+}
 export default function App() {
-  const session = useCourtSession();
-  const { room, catalog, connected, connection, booting, error, setError, request } = session;
-  const [config, setConfig] = useState<AiConfig>(newConfig);
-  const savedConfig = useRef<AiConfig>(newConfig());
-  const hydratedRoom = useRef<string | null>(null);
-  const [notice, setNotice] = useState('');
-  const [busy, setBusy] = useState('');
-  const [rulesOpen, setRulesOpen] = useState(false);
-  const [leaveOpen, setLeaveOpen] = useState(false);
+  const session = useGameSession();
+  const { room, connected, restoring, error, catalog, request } = session;
+  const [screen, setScreen] = useState<'stage' | 'report'>('stage');
+  const [modal, setModal] = useState<'rules' | 'settings' | 'config' | 'leave' | null>(null);
+  const [busy, setBusy] = useState(false), [targetEvent, setTargetEvent] = useState<string | undefined>();
+  const [largeText, setLargeText] = useState(() => readPreference('whisper-large-text', 'false') === 'true');
+  const [reduceMotion, setReduceMotion] = useState(() => readPreference('whisper-reduce-motion', 'false') === 'true');
+  const [voiceEnabled, setVoiceEnabled] = useState(() => readPreference('whisper-voice-enabled', 'true') === 'true');
+  const [ambienceEnabled, setAmbienceEnabled] = useState(() => readPreference('whisper-ambience-enabled', 'true') === 'true');
+  const [can3d, setCan3d] = useState(detect3d), [stage3dFailed, setStage3dFailed] = useState(false);
   const main = useRef<HTMLElement>(null);
-  const previousStatus = useRef<string | null>(null);
-  const you = room?.players.find(p => p.id === room.you);
-  const modelDirty = !!room && (!!config.apiKey || !room.ownAiSettings || !sameModelSettings(config, room.ownAiSettings));
-  const loadoutDirty = !!you && (config.identity !== you.loadout.identity || [...config.items].sort().join(',') !== [...you.loadout.items].sort().join(','));
-  const dirty = modelDirty || loadoutDirty;
-  const modelChanged = !!config.apiKey || !sameModelSettings(config, savedConfig.current);
-  const nav = useWorkspaceNavigation(room, booting, modelChanged, setNotice);
-  const busyRef = useRef(false);
-  const restoring = room?.status === 'playing' && !you?.configured;
-  const darkView = nav.route.view !== 'config';
-  const [arrival, setArrival] = useState(0);
-
-  useLayoutEffect(() => {
-    if (darkView) document.documentElement.dataset.courtTheme = 'dark';
-    else delete document.documentElement.dataset.courtTheme;
-    return () => { delete document.documentElement.dataset.courtTheme; };
-  }, [darkView]);
+  const match = !!room && room.status !== 'waiting' && screen === 'stage';
+  const supported = can3d && !stage3dFailed;
+  const immersive = match;
   useEffect(() => {
-    if (!arrival) return;
-    const timer = window.setTimeout(() => setArrival(0), 420);
-    return () => window.clearTimeout(timer);
-  }, [arrival]);
-
+    document.documentElement.dataset.motion = reduceMotion ? 'reduce' : 'normal';
+    document.documentElement.dataset.textSize = largeText ? 'large' : 'normal';
+    try { localStorage.setItem('whisper-large-text', String(largeText)); localStorage.setItem('whisper-reduce-motion', String(reduceMotion)); localStorage.setItem('whisper-voice-enabled', String(voiceEnabled)); localStorage.setItem('whisper-ambience-enabled', String(ambienceEnabled)); } catch { /* Preferences still apply for this visit. */ }
+  }, [reduceMotion, largeText, voiceEnabled, ambienceEnabled]);
   useEffect(() => {
-    if (!room) { setConfig(newConfig()); savedConfig.current = newConfig(); hydratedRoom.current = null; previousStatus.current = null; return; }
-    const isNewRoom = hydratedRoom.current !== room.code;
-    hydratedRoom.current = room.code;
-    if (!isNewRoom && dirty && room.status === 'waiting') {
-      setConfig(current => ({ ...current, apiKey: '' })); return;
-    }
-    const me = room.players.find(p => p.id === room.you);
-    setConfig(current => {
-      const base = isNewRoom ? newConfig() : current;
-      const equipment = room.status === 'waiting' && !room.ownAiSettings ? { identity: base.identity, items: base.items } : me?.loadout;
-      const next: AiConfig = { ...base, ...room.ownAiSettings, ...equipment, apiKey: '' };
-      savedConfig.current = structuredClone(next); return next;
-    });
-  }, [room?.code, session.restoredVersion]);
-
-  useEffect(() => { setConfig(c => ({ ...c, apiKey: '' })); savedConfig.current.apiKey = ''; }, [session.disconnectVersion]);
-  useEffect(() => {
-    if (!room) return;
-    const before = previousStatus.current;
-    previousStatus.current = room.status;
-    if (room.status === 'playing' && before === 'waiting') { nav.navigate({ view: 'court' }, false, true); }
-    if (room.status === 'finished' || room.status === 'cancelled') { setConfig(c => ({ ...c, apiKey: '' })); savedConfig.current.apiKey = ''; }
-  }, [room?.status]);
-  useEffect(() => {
-    if (!modelChanged || nav.route.view !== 'config') return;
-    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [modelChanged, nav.route.view]);
-  useLayoutEffect(() => {
-    if (!booting) { window.scrollTo({ top: 0, behavior: 'instant' }); main.current?.focus({ preventScroll: true }); }
-  }, [nav.route.view, booting]);
-  useEffect(() => {
-    document.title = `${tabs.find(t => t.view === nav.route.view)?.label || '双人 AI 竞技'} · AI 法庭`;
-  }, [nav.route.view]);
-
-  const updateConfig = <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => {
-    const next = { ...config, [key]: value }; setConfig(next);
-    if ((key === 'identity' || key === 'items') && !saveLoadoutPreferences(next)) setError('浏览器未允许保存装备偏好，本次选择仍可使用。');
-  };
-  const switchProvider = (provider: AiConfig['provider']) => {
-    const preset = PROVIDER_PRESETS.find(p => p.id === provider)!;
-    setConfig(c => ({ ...c, provider, apiKey: '', baseUrl: preset.baseUrl, model: preset.defaultModel, inputPricePerMillion: undefined, outputPricePerMillion: undefined }));
-  };
-  const run = async (name: string, work: () => Promise<void>) => {
-    if (busyRef.current) return;
-    busyRef.current = true; setBusy(name); setError(''); setNotice('');
-    try { await work(); } catch (e) { setError((e as Error).message); } finally { busyRef.current = false; setBusy(''); }
-  };
-  const save = async () => {
-    const canonical = await request<OwnAiSettings>('ai:configure', config);
-    const next = { ...config, ...canonical, apiKey: '' };
-    setConfig(next); savedConfig.current = structuredClone(next);
-    const stored = saveModelPreferences(canonical);
-    setNotice(restoring ? '密钥已提交，等待双方连接就绪后继续庭审。' : `AI 配置已保存，本标签页重建或加入房间时会自动沿用，无需重填密钥。${stored ? '' : '浏览器未允许保存模型偏好。'}`);
-    if (restoring) nav.navigate({ view: 'court' }, false, true);
-  };
-  const saveEquipment = async () => {
-    if (loadoutDirty) await request('player:loadout', { identity: config.identity, items: config.items });
-    setNotice('装备已保存。模型与密钥不受影响。');
-    nav.navigate({ view: 'room' }, false, true);
-  };
-  const forgetRoomLocally = (expired = false) => {
-    session.forget(); setConfig(newConfig()); savedConfig.current = newConfig();
-    setLeaveOpen(false); nav.cancelNavigation(); setError('');
-    if (expired) setNotice('房间已过期或清理，已返回首页。');
-    if (expired) requestAnimationFrame(() => window.location.replace(`${window.location.pathname}#home`));
-    else requestAnimationFrame(() => nav.navigate({ view: 'home' }, true, true));
-  };
+    const media = window.matchMedia('(min-width: 900px)');
+    const update = () => setCan3d(detect3d());
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
+  useEffect(() => { setScreen('stage'); setTargetEvent(undefined); setModal(null); }, [room?.code]);
+  useEffect(() => { document.title = room ? `${room.scenario.title} · 低语代理人` : '低语代理人 · 一句低语，余下交给它'; }, [room?.scenario.title]);
+  useEffect(() => { main.current?.focus({ preventScroll: true }); window.scrollTo({ top: 0 }); }, [screen, room?.code, room?.status === 'waiting']);
   const leave = async () => {
-    await run('leave', async () => {
-      try { await request('room:leave'); }
-      catch (e) {
-        if (!/(?:会话失效|重连会话失效)|房间(?:已清理|已取消|不存在|已过期)/.test((e as Error).message)) throw e;
-        forgetRoomLocally(true); return;
-      }
-      forgetRoomLocally();
-    });
+    if (busy) return; setBusy(true);
+    try { await session.leave(); setModal(null); setScreen('stage'); }
+    catch (err) { session.setError((err as Error).message); }
+    finally { setBusy(false); }
   };
-  const go = (route: Route) => { setError(''); setNotice(''); nav.navigate(route); };
-  const link = (e: MouseEvent<HTMLAnchorElement>, route: Route) => {
-    if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-    e.preventDefault(); go(route);
-  };
-
-  return <div className={`app-shell${darkView ? ' theme-court-dark' : ''}${nav.route.view === 'court' && room?.game ? ' court-session' : ''}`}>
-    <a className="skip-link" href="#workspace" onClick={e => { e.preventDefault(); main.current?.focus(); }}>跳到主要内容</a>
-    <header className="topbar"><a className="brand" href={room ? '#room' : '#home'} onClick={e => link(e, { view: room ? 'room' : 'home' })}><span className="brand-seal" aria-hidden="true">衡</span><span><strong>AI 法庭</strong><small>电子斗蛐蛐</small></span></a><div className="topbar-right"><span className={`network-state ${connected ? 'online' : ''}`} role="status"><i aria-hidden="true" />{connection}</span><button className="text-button rules-button" onClick={() => setRulesOpen(true)}>庭审规则</button></div></header>
-    {room && <div className="workspace-bar"><nav className="workspace-nav" aria-label="工作区页面">{tabs.map(tab => {
-      const disabled = (tab.view === 'court' && !room.game) || (tab.view === 'report' && (room.status !== 'finished' || !room.game?.verdict)) || (tab.view === 'config' && room.status !== 'waiting' && !restoring);
-      return disabled ? <span key={tab.view} aria-disabled="true" className="nav-unavailable">{tab.label}</span> : <a key={tab.view} href={`#${tab.view}`} aria-current={nav.route.view === tab.view ? 'page' : undefined} onClick={e => link(e, { view: tab.view })}>{tab.label}</a>;
-    })}</nav><button className="text-button leave-button" disabled={!!busy} onClick={() => {
-      if (room.status === 'playing' || dirty) setLeaveOpen(true); else void leave();
-    }}>{room.status === 'playing' ? '退出对局' : '离开房间'}</button></div>}
-    <main id="workspace" ref={main} tabIndex={-1}>
-      {error && <div className="feedback error" role="alert"><span>{error}</span><button className="icon-button" aria-label="关闭错误提示" onClick={() => setError('')}>×</button></div>}
-      {notice && <div className="feedback info" role="status"><span>{notice}</span><button className="icon-button" aria-label="关闭提示" onClick={() => setNotice('')}>×</button></div>}
-      {room?.notice && nav.route.view !== 'court' && <div className="feedback warning" role="status">{room.notice}</div>}
-      {!connected && room && ['playing', 'waiting'].includes(room.status) && nav.route.view !== 'court' && <div className="feedback error" role="status">连接已断开，请等待恢复或重新连接。服务器重启后需要新建房间。<button onClick={session.reconnect}>重新连接</button></div>}
-      {restoring && connected && nav.route.view !== 'config' && nav.route.view !== 'court' && <div className="feedback warning recovery-notice"><span>真实模型连接尚未恢复，请重新提交原配置的密钥。双方恢复后，由当前玩家主动确认行动。</span><button className="secondary" onClick={() => go({ view: 'config' })}>重新提交密钥</button></div>}
-      {booting ? <section className="panel loading-panel"><h1>正在恢复工作区…</h1><p>{connection}。恢复访客会话后将打开对应页面。</p></section> : <>
-        {!room && nav.route.view === 'home' && <HomePage catalog={catalog} connected={connected} busy={!!busy} request={request} onJoin={(joined, created) => { setError(''); setNotice(joined.room.ownAiSettings ? '已自动沿用你上次保存的 AI 配置和装备，确认后即可准备。' : ''); session.acceptJoin(joined); if (created) setArrival(Date.now()); }} />}
-        {room && nav.route.view === 'room' && <RoomPage room={room} catalog={catalog} connected={connected} busy={!!busy} pendingConfig={dirty} request={request} run={run} onConfigure={() => go({ view: 'config' })} onCourt={() => go({ view: 'court' })} onReport={() => go({ view: 'report' })} />}
-        {room && nav.route.view === 'config' && <ConfigPage room={room} catalog={catalog} config={config} dirty={dirty} connected={connected} section={nav.route.section} onChange={updateConfig} onProvider={switchProvider} onSave={save} onSaveEquipment={saveEquipment} onEquipment={() => go({ view: 'config', section: 'equipment' })} request={request} />}
-        {room?.game && nav.route.view === 'court' && <CourtPage room={room} connected={connected} request={request} catalog={catalog} eventId={nav.route.event} onReport={() => go({ view: 'report' })} onReconnect={session.reconnect} onConfigure={() => go({ view: 'config' })} onLeave={() => room.status === 'playing' ? setLeaveOpen(true) : void leave()} />}
-        {room?.game?.verdict && nav.route.view === 'report' && <ReportPage room={room} onCourt={() => go({ view: 'court' })} onEvent={event => go({ view: 'court', event })} onNewMatch={() => void leave()} />}
-      </>}
+  const review = (event?: string) => { setTargetEvent(event); setScreen('stage'); };
+  return <div className={`app-shell${match ? ' is-match' : ''}${immersive ? ' is-immersive' : ''}`}>
+    <a className="skip-link" href="#main">跳到主要内容</a>
+    <header className="app-header"><a className="brand" href="#home" onClick={e => { e.preventDefault(); if (room) setModal('leave'); }} aria-label="低语代理人首页"><span className="brand-mark" aria-hidden="true"><svg width="28" height="34" viewBox="0 0 28 34" fill="none"><path d="m14 1 12 8v16l-12 8L2 25V9L14 1Z" stroke="currentColor" /><path d="M8 13v8M14 8v18M20 13v8" stroke="currentColor" strokeWidth="1.5" /></svg></span><span><strong>低语代理人</strong><small>每一句，都有回声。</small></span></a>
+      <nav className="header-navigation" aria-label="主要导航">{room && <><button className={room.status === 'waiting' ? 'current' : ''} disabled={room.status !== 'waiting'}>幕后准备</button><button className={room.status !== 'waiting' && screen === 'stage' ? 'current' : ''} disabled={room.status === 'waiting'} onClick={() => review()}>交锋现场</button><button className={screen === 'report' ? 'current' : ''} disabled={!room.outcome} onClick={() => setScreen('report')}>赛后复盘</button></>}</nav>
+      <div className="header-tools"><span className={`connection-status${connected ? ' connected' : ''}`} role="status"><i />{connected ? '已连接' : '正在重连'}</span><button className="header-help" onClick={() => setModal('rules')}>玩法</button><button className="icon-button" aria-label="窗口设置" onClick={() => setModal('settings')}><Icon name="settings" /></button>{room && <button className="icon-button" aria-label="离开房间" onClick={() => setModal('leave')}><Icon name="exit" /></button>}</div>
+    </header>
+    <main id="main" ref={main} tabIndex={-1}>
+      {error && <div className="global-feedback" role="alert"><Icon name="warning" size={18} /><span>{error}</span>{!connected && <button className="text-button" onClick={session.reconnect}>重试连接</button>}<button className="icon-button" aria-label="关闭提示" onClick={() => session.setError('')}><Icon name="close" size={17} /></button></div>}
+      {room?.notice && room.status !== 'cancelled' && <div className="global-feedback notice" role="status"><Icon name="warning" size={18} /><span>{room.notice}</span></div>}
+      {restoring ? <div className="loading-state"><span className="ornament">◇</span><h1>正在连接舞台</h1><p>如果此前已经入席，会为你恢复本局进展。</p></div> : !room ? <HomePage scenarios={catalog?.scenarios || []} connected={connected} enter={session.enter} request={request} /> : room.status === 'waiting' ? <RoomPage room={room} scenarios={catalog?.scenarios || []} connected={connected} request={request} onConfigure={() => setModal('config')} /> : screen === 'report' && room.outcome ? <ReportPage room={room} onReview={review} onLeave={() => void leave()} /> : <CourtPage key={room.code} room={room} connected={connected} request={request} onReport={() => setScreen('report')} targetEvent={targetEvent} reduceMotion={reduceMotion} voiceEnabled={voiceEnabled} onToggleVoice={() => setVoiceEnabled(value => !value)} ambienceEnabled={ambienceEnabled} onToggleAmbience={() => setAmbienceEnabled(value => !value)} can3d={supported} onOpenSettings={() => setModal('settings')} onRequestLeave={() => setModal('leave')} on3dFailed={() => setStage3dFailed(true)} />}
     </main>
-    <footer className="site-footer"><span>AI 法庭 <span className="muted">/ 电子斗蛐蛐</span></span><span>发言可以离谱，证据必须靠谱。</span><span>V1.3 案件与对抗体验</span></footer>
-    {!!arrival && <div className="dossier-transfer" aria-hidden="true" key={arrival}><i /><i /></div>}
-    {rulesOpen && <Dialog title="庭审规则" onClose={() => setRulesOpen(false)}><Rules catalog={catalog} /></Dialog>}
-    {nav.pending && <Dialog title="有尚未保存的模型配置" onClose={nav.cancelNavigation} actions={<><button className="secondary" onClick={nav.cancelNavigation}>继续编辑</button><button className="primary" onClick={() => { setConfig(c => ({ ...savedConfig.current, identity: c.identity, items: c.items, apiKey: '' })); nav.discardAndNavigate(); }}>放弃修改</button></>}><p>离开将放弃本次模型修改，身份与道具偏好仍会保留。</p></Dialog>}
-    {leaveOpen && <Dialog title={room?.status === 'playing' ? '退出并终止对局？' : '放弃修改并离开房间？'} onClose={() => setLeaveOpen(false)} actions={<><button className="secondary" onClick={() => setLeaveOpen(false)}>继续留在房间</button><button className="danger-button" disabled={!!busy} onClick={() => void leave()}>{busy ? '正在退出…' : '确认退出'}</button></>}><p>{room?.status === 'playing' ? '退出会终止双方当前对局，不会生成判决。对方也需要重新创建房间。' : '未保存的配置将丢弃，当前房间将取消。'}</p></Dialog>}
+    {!match && <footer className="app-footer"><span>低语代理人 <span className="footer-divider">/</span> 幕后引导 · 自主智斗</span><span>它有自己的判断，你有一句耳语。</span><span>第一幕已就绪 · v1.0</span></footer>}
+    {modal === 'config' && room && catalog && <ConfigModal room={room} providers={catalog.providers} request={request} onClose={() => setModal(null)} />}
+    {modal === 'settings' && <Modal title="窗口设置" onClose={() => setModal(null)}><div className="settings-options"><label><span><strong>舒适阅读</strong><small>放大交锋与汇报文字。</small></span><input type="checkbox" checked={largeText} onChange={e => setLargeText(e.target.checked)} /></label><label><span><strong>减少动态效果</strong><small>关闭灯光切换与短暂提示动画。</small></span><input type="checkbox" checked={reduceMotion} onChange={e => setReduceMotion(e.target.checked)} /></label><label><span><strong>代理人语音</strong><small>用本机中文语音按正常人类语速朗读公开发言，不发送到外部服务。</small></span><input type="checkbox" checked={voiceEnabled} onChange={e => setVoiceEnabled(e.target.checked)} /></label><label><span><strong>环境音</strong><small>本机程序化生成的短音效（筹码、翻页、封蜡、违约等）；朗读时自动压低，不启动循环底噪，不请求外部音频。</small></span><input type="checkbox" checked={ambienceEnabled} onChange={e => setAmbienceEnabled(e.target.checked)} /></label><p className="fine-print">本版本对局舞台仅提供全屏 3D 第一视角；窗口宽度小于 900px 或 WebGL 不可用时显示不可用提示。系统开启减少动态效果时，同样会自动遵循；没有中文语音时按正常阅读语速无声推进。</p></div></Modal>}
+    {modal === 'rules' && <Modal title="在幕后，如何入局" onClose={() => setModal(null)} wide><div className="rules-copy"><p className="rules-lead">让 AI 自己交锋。你只需要听取汇报，偶尔给一句提醒。</p><h3>一局三幕</h3><p>每幕依次进行：私密方针 → 三次 AI 交锋 → 公开卡 → 双方 AI 回应，共十二次行动。私密阶段 30 秒，公开阶段 15 秒；双方提交后自动开始演出，到时未提交视为留白。代理人每幕私下汇报进展、判断与下一步打算。</p><h3>自动演出</h3><p>服务端仍在每个回合开始和每次行动后开启门闩，客户端在演出完成后自动确认。可随时暂停，暂停时停在门闩并显示“继续”，恢复后继续自动演出；打开抽屉会暂时暂停。双方客户端都确认后才继续，内置陪练自动确认。</p><h3>语音与节奏</h3><p>交锋中的公开发言默认由本机中文语音按正常人类语速朗读，桌面变化会等这句话说完。可在全屏顶栏或窗口设置关闭语音；没有中文语音时按正常阅读语速无声推进。两倍速会同时加快动作与朗读，“跳过演出”只展示当前这一步，未暂停时随后自动确认。</p><h3>两种声音</h3><p>私密阶段递出一张方针卡：守价、试探、施压或成交，可附 15 字备注，仅自家代理人可见。公开阶段递出一张公开卡：承诺、施压或表态，可附 10 字备注，双方可见。可以留白；AI 会自行判断，也可能拒绝建议。不同模式的草稿分别保存。</p><h3>信任与秘密</h3><p>初始信任为 75。耳语明显违反已确认的回合、报价或查验规则，扣 10 点；重复同类错误可扣 15 点。冒险、意见分歧或猜错未知信息不因其本身扣信任。有效查验建议可恢复 2 点信任。信任归零则停止代理并判负。对手秘密在赛后揭晓。</p><h3>谈判如何结算</h3><p>双方以 1～12 枚筹码谈判，一方接受对方符合己方底线的报价后形成协议。已形成的协议保持有效，新的报价只有经对方接受后才替代。三幕结束后执行最后协议。</p><p>基础仲裁分各 10。有效查验 +3；用查验事实识破不实声明，仲裁 +3、心理 +3；不成立的质疑仲裁 −2。达成协议各获 8 分，并按各自在可成交区间内的交易收益获得 0～24 分。总分高者胜，同分平局。</p><h3>公开承诺</h3><p>代理人的报价可附带价格承诺。玩家在公开阶段选择“承诺”卡且已有本方报价时，将按该价格记账；没有本方报价时只作为表态。“施压”卡生成双方可见的公开施压事件，不新增计分；“表态”只记录公开话语。违约时本方信任 −8、心理分 −3，对方心理分 +2。</p><h3>免费体验与真实模型</h3><p>本地策略代理根据规则、性格、已知信息和方针选择行动，属于免费体验模式。双人房间可在准备时分别配置真实模型，整局共 12 次 AI 行动；按席位轮转，最多一方 7 次、另一方 5 次外部调用。失败时由本地代理接管，并明确提示。断线期间阶段照常进行，重新连接会恢复已确认的进展。</p></div></Modal>}
+    {modal === 'leave' && room && <Modal title={room.status === 'playing' ? '离开这场交锋？' : '返回入口？'} onClose={() => setModal(null)}><p>{room.status === 'playing' ? '离开将中止双方对局，不生成胜负结果。暂时关闭这个窗口可以在会话有效期内重新连接。' : '返回后可以重新选择议题、创建房间或加入另一场交锋。'}</p><div className="modal-actions"><button className="button-secondary" onClick={() => setModal(null)}>继续留在这里</button><button className="button-primary" disabled={busy || !connected} onClick={() => void leave()}>{busy ? '正在离开…' : '确认返回入口'}</button></div>{!connected && <button className="text-button" onClick={() => { session.forget(); setModal(null); }}>仅从本机返回入口</button>}</Modal>}
   </div>;
 }

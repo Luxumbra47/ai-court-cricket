@@ -1,79 +1,78 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { Catalog, EvidenceView, GameEvent, RoomView } from '../../shared/types';
-import { DIFFICULTIES, SIDE_NAMES, STAGE_NAMES, TACTICS } from '../../shared/types';
-import { playerText, presentEvent } from '../../shared/presentation';
-import { Badge, PlayerCard } from '../components/ui';
-import { ACTIONS, actionEvents, signed } from '../frontend';
-import { courtState, eligibleEvidenceIds, type ActionFocus } from '../courtState';
-import ActionPanel from '../components/ActionPanel';
+import { useEffect, useRef, useState } from 'react';
+import type { RoomView } from '../../shared/whisper';
+import { ACT_NAMES, AGENT_NAMES, PHASE_NAMES, STANCES } from '../../shared/whisper';
+import { Portrait } from '../components/Theatre';
+import NegotiationStage from '../components/NegotiationStage';
+import Drawer from '../components/Drawer';
+import WhisperComposer from '../components/WhisperComposer';
+import Icon from '../components/Icon';
 
-export function EvidenceStatus({ evidence }: { evidence: EvidenceView }) {
-  const s = evidence.state;
-  return <div className="evidence-badges"><span>{s.disclosure === 'private' ? '仅你可见' : '双方可见'}</span><span>{s.submitted ? '已出示' : '未出示'}</span>{s.challenged && <span>曾被质疑</span>}{s.reviewed && <span>已复核</span>}</div>;
-}
-export function EventCard({ event, selected, onEvidence, evidence }: { event: GameEvent; selected: boolean; onEvidence: (id: string) => void; evidence: EvidenceView[] }) {
-  if (event.kind !== 'action') return <p className={`system-event ${event.kind === 'verdict' ? 'final-event' : ''}`}>{playerText(event.text)}</p>;
-  const outcome = event.presentation ?? presentEvent(event).presentation!;
-  return <article className={`argument ${selected ? 'highlighted' : ''}`} id={`event-${event.id}`} tabIndex={-1}>
-    <div className="argument-heading">{event.side && <Badge side={event.side} />}<h3>{ACTIONS[event.action?.action_type || ''] || '法庭辩论'}</h3>{event.command && <span className="muted event-order">{TACTICS[event.command.tactic]}</span>}</div>
-    <p className="speech">{playerText(event.text)}</p>
-    {!!event.action?.cited_evidence_ids.length && <div className="citations">{event.action.cited_evidence_ids.map(id => { const e = evidence.find(x => x.id === id); return e && <button className="evidence-link" key={id} onClick={() => onEvidence(id)}>{e.title}<span aria-hidden="true">↗</span></button>; })}</div>}
-    <div className="action-outcome"><strong>{outcome.title}</strong><p>{outcome.explanation}</p><div className="outcome-numbers"><span>{event.scoreDelta ? `控方证据强度 ${signed(event.scoreDelta)}` : '证据强度不变'}</span>{event.settlement ? (['defense', 'prosecution'] as const).map(side => <span key={side}>{SIDE_NAMES[side]}冷静值 {signed(event.settlement!.calmChanges[side])}</span>) : !!event.stabilityDelta && <span>本方冷静值 {signed(event.stabilityDelta)}</span>}</div>{event.settlement && <><p className="field-hint">{event.successful ? '本次行动已生效。' : '本次未取得有利收益。'}{event.settlement.costs.join('；')}。</p><p className="field-hint">{event.settlement.impact} {event.settlement.nextSide ? `接下来轮到${SIDE_NAMES[event.settlement.nextSide]}。` : '庭审结束，请查看判决。'}</p></>}<details><summary>查看详细判定与预览说明</summary>{outcome.detailLines.map((line, i) => <p key={i}>{line}</p>)}</details></div>
-  </article>;
-}
-function EvidenceDetails({ evidence, available }: { evidence: EvidenceView; available: boolean }) {
-  return <section className="evidence-detail"><h3 tabIndex={-1} id="evidence-detail-heading">{evidence.title}</h3><EvidenceStatus evidence={evidence} /><h4>发生了什么</h4><p>{evidence.description}</p><h4>能说明什么</h4><p>{evidence.supports || evidence.explanation || evidence.description}</p><h4>不能说明什么</h4><p>{evidence.limitations || '单独一份材料不能解释整件事，需要与庭上其他证据相互核对。'}</p><p className="evidence-availability">{available ? '可用于当前行动，请在行动面板中选择。' : '当前仅供阅读；可用材料由本回合行动决定。'}</p>{!evidence.state.submitted && evidence.state.disclosure === 'public' && <p className="muted">双方已经知道这份材料，但还没有正式出示；符合条件时仍可首次出示。</p>}<details className="technical-details"><summary>查看详细资料</summary><p>资料编号：{evidence.id}</p><p>{evidence.details || evidence.description}</p></details></section>;
-}
-interface Props { room: RoomView; eventId?: string; onReport: () => void; onReconnect: () => void; onConfigure: () => void; onLeave: () => void; connected: boolean; catalog: Catalog | null; request: <T>(event: string, payload?: unknown) => Promise<T> }
-export default function CourtPage({ room, eventId, onReport, onReconnect, onConfigure, onLeave, connected, request, catalog }: Props) {
-  const game = room.game!, you = room.players.find(p => p.id === room.you)!, ui = courtState(room, connected);
-  const actions = actionEvents(room.events), allEvidence = [...room.publicEvidence, ...room.privateEvidence];
-  const [mobileTab, setMobileTab] = useState<'court' | 'evidence' | 'status'>('court');
-  const [following, setFollowing] = useState(!eventId), [unread, setUnread] = useState(0);
-  const followingRef = useRef(!eventId);
-  const [tab, setTab] = useState<'public' | 'private'>('public'), [selectedId, setSelectedId] = useState<string | null>(null);
-  const [focus, setFocus] = useState<ActionFocus>({ optionId: '', targetId: '' });
-  const [guide, setGuide] = useState(() => { try { return localStorage.getItem('court-quick-guide-v1.1') !== 'seen'; } catch { return true; } });
-  const scroller = useRef<HTMLDivElement>(null), lastCount = useRef(actions.length);
-  const evidence = tab === 'public' ? room.publicEvidence : room.privateEvidence;
-  const chosenAction = room.actionOptions.find(o => o.id === focus.optionId), materialIds = eligibleEvidenceIds(room, chosenAction, focus.targetId);
-  const available = (e: EvidenceView) => chosenAction ? ui.canAct && materialIds.includes(e.id) : ui.canAct && e.state.targetable;
-  useEffect(() => { setSelectedId(null); setTab('public'); setMobileTab('court'); followingRef.current = true; setFollowing(true); setUnread(0); lastCount.current = 0; }, [room.code, room.case.id, room.case.version]);
-  useLayoutEffect(() => {
-    const box = scroller.current;
-    if (followingRef.current && box && box.clientHeight > 0) { box.scrollTop = box.scrollHeight; setUnread(0); }
-    else if (actions.length > lastCount.current) setUnread(n => n + actions.length - lastCount.current);
-    lastCount.current = actions.length;
-  }, [actions.length, room.events.length, mobileTab]);
-  useEffect(() => {
-    if (!eventId) return;
-    const target = document.getElementById(`event-${eventId}`), box = scroller.current;
-    if (target && box) { followingRef.current = false; setFollowing(false); box.scrollTop += target.getBoundingClientRect().top - box.getBoundingClientRect().top - 12; target.focus({ preventScroll: true }); }
-  }, [eventId]);
-  const openEvidence = (id: string) => {
-    if (!allEvidence.some(e => e.id === id)) return;
-    setMobileTab('evidence'); setTab(room.publicEvidence.some(e => e.id === id) ? 'public' : 'private'); setSelectedId(id);
-    requestAnimationFrame(() => document.getElementById('evidence-detail-heading')?.focus({ preventScroll: true }));
-  };
-  const jumpToLatest = () => { followingRef.current = true; setFollowing(true); setUnread(0); if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight; };
-  return <div className="court-workspace">
-    <div className="page-heading court-heading"><div><span className="section-label">房间 {room.code} · 你是{SIDE_NAMES[you.side]}{room.difficulty ? ` · ${DIFFICULTIES[room.difficulty]}` : ''}</span><h1>{room.case.title}</h1><p className="case-dispute">{room.case.dispute || room.case.background.split('。')[0] + '。'}</p></div><div className="court-progress"><span className="status-tag">{ui.terminal ? ui.title : game.stage ? STAGE_NAMES[game.stage] : game.phase === 'closing' ? '最终陈词' : `第 ${game.round} / 3 轮`}</span><span className="muted">{game.rulesVersion === 3 ? `机会 ${game.opportunities ?? 0}/12 · 出招 ${actions.length}` : `已完成 ${actions.length} / 8`}</span><button className="text-button" onClick={() => setGuide(!guide)}>玩法提示</button></div></div>
-    <div className={`court-state state-${ui.kind}`} role="status"><div><strong>{ui.title}</strong><span>{ui.message}</span></div><div className="court-state-actions">{ui.kind === 'disconnected' && <button className="secondary" onClick={onReconnect}>重新连接</button>}{ui.kind === 'model_missing' && !you.configured && <button className="secondary" onClick={onConfigure}>恢复模型连接</button>}{ui.kind === 'finished' && <button className="primary" onClick={onReport}>查看判决</button>}{ui.terminal && <button className="secondary" onClick={onLeave}>返回大厅</button>}</div></div>
-    {room.notice && ['your_turn', 'opponent_turn'].includes(ui.kind) && <p className="court-notice">{playerText(room.notice)}</p>}
-    {guide && <div className="quick-guide"><p>读案件 → 看证据 → 选行动与战术 → 确认出招 → 看结果，等对手反击。</p><button className="text-button" onClick={() => { setGuide(false); try { localStorage.setItem('court-quick-guide-v1.1', 'seen'); } catch { /* optional preference */ } }}>明白了</button></div>}
-    <section className="score-banner" aria-label="控方证据强度"><span>控方证据强度 <strong>{game.score}</strong><small> / 100</small></span><div className="score-track"><span style={{ width: `${game.score}%` }} /><i style={{ left: `${room.case.threshold}%` }} /></div><span className="muted">达到 {room.case.threshold} 控方胜</span><details className="score-help"><summary>什么意思？</summary><p>现有证据对指控的支持程度，不是被告有罪的概率。最终达到 {room.case.threshold}，控方胜；否则辩方胜。</p></details></section>
-    <div className="court-mobile-tabs segmented" aria-label="对局面板">{(['court', 'evidence', 'status'] as const).map(t => <button key={t} className={mobileTab === t ? 'active' : ''} aria-pressed={mobileTab === t} onClick={() => setMobileTab(t)}>{t === 'court' ? '庭审与行动' : t === 'evidence' ? '案件证据' : '双方状态'}</button>)}</div>
-    <div className={'turn-layout mobile-' + mobileTab}>
-      <aside className="panel turn-evidence"><h2>案件证据</h2>{room.guide ? <details className="case-background case-guide" open={actions.length === 0 || undefined}><summary>案件导览与时间线</summary><h4>发生了什么</h4><p>{room.guide.happened}</p><h4>双方争议</h4><p>{room.guide.dispute}</p><h4>你的目标</h4><p>{room.guide.objective}</p>{room.guide.directions.map(line => <p key={line}>{line}</p>)}<h4>你已掌握的时间线</h4><ol>{room.guide.timeline.map((node, i) => <li key={i}><strong>{node.time}</strong> {node.text}</li>)}</ol><p className="field-hint">时间线只包括你已知的材料；更多节点可通过调查或公开举证补齐。</p></details> : <details className="case-background"><summary>完整案情</summary><p>{room.case.background}</p></details>}<div className="segmented" aria-label="证据范围"><button aria-pressed={tab === 'public'} className={tab === 'public' ? 'active' : ''} onClick={() => { setTab('public'); setSelectedId(null); }}>双方可见 {room.publicEvidence.length}</button><button aria-pressed={tab === 'private'} className={tab === 'private' ? 'active' : ''} onClick={() => { setTab('private'); setSelectedId(null); }}>私人情报 {room.privateEvidence.length}</button></div>
-        {tab === 'private' && <p className="private-note">仅你可见；选中使用后才会公开，未选材料不会交给本次 AI。</p>}
-        <div className="evidence-list" aria-label="证据列表">{evidence.map(e => <div key={e.id}><button className={`evidence-list-item ${selectedId === e.id ? 'selected' : ''}`} aria-pressed={selectedId === e.id} onClick={() => setSelectedId(selectedId === e.id ? null : e.id)}><strong>{e.title}</strong><small>{e.description}</small><EvidenceStatus evidence={e} />{available(e) && <small className="material-available">可用于{chosenAction ? '当前行动' : '本回合行动'}</small>}</button>{selectedId === e.id && <EvidenceDetails evidence={e} available={available(e)} />}</div>)}</div>{!evidence.length && <p className="empty-message">暂无未公开的私人材料。</p>}
-      </aside>
-      <div className={`turn-center${ui.canAct ? ' action-active' : ''}`}><section className="panel transcript-panel"><div className="transcript-header"><h2>法庭辩论</h2><span className="muted">{following ? '正在查看最新' : '正在阅读历史'}</span></div><div className="transcript" ref={scroller} tabIndex={0} role="region" aria-label="可滚动的庭审实录" onScroll={e => { const n = e.currentTarget, near = n.scrollHeight - n.scrollTop - n.clientHeight < 48; followingRef.current = near; setFollowing(near); if (near) setUnread(0); }}>
-        {room.events.map(event => <EventCard key={event.id} event={event} selected={event.id === eventId} onEvidence={openEvidence} evidence={allEvidence} />)}
-        {!actions.length && <p className="empty-message">庭审已经开始。双方确认行动后，律师发言和法庭结算会依次出现在这里。</p>}
-      </div><div className="transcript-footer"><span className="muted">律师负责辩论，法庭按证据结算。</span><button className={unread ? 'primary' : 'text-button'} onClick={jumpToLatest}>{unread ? `${unread} 条新发言 · 回到最新` : '回到最新发言'}</button></div></section><ActionPanel room={room} connected={connected} request={request} onFocusChange={setFocus} /></div>
-      <aside className="turn-status"><h2>双方状态</h2>{room.players.map(p => <PlayerCard key={p.id} player={p} own={p.id === room.you} compact catalog={catalog} actionStatus={ui.terminal ? ui.title : !p.connected ? '暂时离线' : game.turn === p.side ? ui.kind === 'generating' ? '正在组织辩论' : ui.kind === 'resolving' ? '行动结算中' : '本方行动' : '等待对方行动'} />)}<details className="status-help"><summary>AI 冷静值是什么？</summary><p>某些行动或受到有效反击会降低冷静值，进而限制部分行动；它不代表模型真实智力。</p></details></aside>
+function BackstageBody({ room, connected, request }: { room: RoomView; connected: boolean; request: <T = void>(event: string, data?: unknown) => Promise<T> }) {
+  const report = room.own.reports.at(-1), change = room.own.changes.at(-1);
+  const stance = [...room.own.whispers].reverse().find(w => w.act === room.act && w.channel === 'private' && w.stance)?.stance;
+  return <>
+    <div className="own-agent"><Portrait side={room.you} large /><div><span className="muted">你的代理人</span><h2>{AGENT_NAMES[room.you]}</h2><span className="agent-role">{room.scenario.roles[room.you]}</span></div><span className="agent-online"><i />{room.own.config.provider === 'mock' ? '本地策略' : '模型代理'}</span></div>
+    <div className="trust-state"><div><span>对你的信任</span><strong>{room.own.trust}<small> / 100</small></strong>{change && <details className="trust-history"><summary aria-label="查看信任变化原因" className={change.delta < 0 ? 'error-text' : 'success-text'}>{change.delta > 0 ? '+' : ''}{change.delta} · 原因</summary><div className="trust-change-list">{room.own.changes.map(c => <p key={c.id}>{c.delta > 0 ? '+' : ''}{c.delta}：{c.reason}</p>)}</div></details>}</div><p>{room.own.trust >= 70 ? '愿意听取你的建议' : room.own.trust >= 35 ? '开始谨慎核实你的建议' : room.own.trust > 0 ? '对你的判断抱有怀疑' : '已停止代理'}</p></div>
+    <div className="stance-state" aria-label="本幕方针"><span>本幕方针：</span><strong>{stance ? STANCES[stance].name : '未设定'}</strong><small>{stance ? STANCES[stance].description : '可在私密耳语中递出方针卡，或直接留白。'}</small></div>
+    <div className="report-scroll"><section className="objective-card" aria-label="你的隐藏副目标"><div className="section-heading"><h3>你的隐藏副目标</h3><span className="objective-reward">达成 +{room.own.objective.reward} 心理分</span></div><strong className="objective-title">{room.own.objective.title}</strong><p>{room.own.objective.description}</p><small>仅你可见；公开舞台、公开低语与对端都不会显示这条目标。</small></section><section className="agent-report" key={report?.id || 'initial'}><div className="section-heading"><h3>本轮汇报</h3><span className="report-act">{report?.act ? `第 ${report.act} 幕` : '开局汇报'}</span></div>{report ? <><p className="report-quote">{report.text}</p><div className="report-intention"><span>接下来</span><p>{report.intention}</p></div></> : <p className="muted">代理人正在整理汇报。</p>}</section>
+      {room.own.reports.length > 1 && <details className="report-history"><summary>此前的汇报 <span>{room.own.reports.length - 1}</span></summary>{room.own.reports.slice(0, -1).reverse().map(r => <div key={r.id}><span className="muted">{r.act ? `第 ${r.act} 幕` : '开局'}</span><p>{r.text}</p></div>)}</details>}
+      <details className="own-information"><summary>我的目标与私密情报</summary><p>{room.own.goal}</p><p>{room.own.secret}</p><p className="muted">剩余查验机会：{room.own.verificationLeft}</p></details>
     </div>
-    {mobileTab !== 'court' && <button className="mobile-back-action secondary" onClick={() => setMobileTab('court')}>返回庭审与行动{unread ? ` · ${unread} 条新发言` : ''}</button>}
+    <WhisperComposer room={room} connected={connected} request={request} />
+  </>;
+}
+
+export default function CourtPage({ room, connected, request, onReport, targetEvent, reduceMotion, voiceEnabled, onToggleVoice, ambienceEnabled, onToggleAmbience, can3d, onOpenSettings, onRequestLeave, on3dFailed }: { room: RoomView; connected: boolean; request: <T = void>(event: string, data?: unknown) => Promise<T>; onReport: () => void; targetEvent?: string; reduceMotion: boolean; voiceEnabled: boolean; onToggleVoice: () => void; ambienceEnabled: boolean; onToggleAmbience: () => void; can3d: boolean; onOpenSettings: () => void; onRequestLeave: () => void; on3dFailed: () => void }) {
+  const [now, setNow] = useState(Date.now()), [backstageOpen, setBackstageOpen] = useState(false);
+  const autoKey = useRef('');
+  const finished = room.status === 'finished';
+  const seconds = room.deadline ? Math.max(0, Math.ceil((room.deadline - now) / 1000)) : null;
+  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 500); return () => window.clearInterval(timer); }, []);
+  // The private booth opens by itself for each fresh whisper stage and folds after submission.
+  useEffect(() => {
+    if (!can3d) { setBackstageOpen(false); return; }
+    const open = room.phase === 'whisper' && !room.submitted.private || room.phase === 'public' && !room.submitted.public;
+    if (!open) return;
+    const key = `${room.act}:${room.phase}`;
+    if (autoKey.current === key) return;
+    autoKey.current = key;
+    setBackstageOpen(true);
+  }, [can3d, room.act, room.phase, room.submitted.private, room.submitted.public]);
+  useEffect(() => {
+    if (!can3d) return;
+    if (room.phase === 'whisper' && room.submitted.private || room.phase === 'public' && room.submitted.public || room.phase !== 'whisper' && room.phase !== 'public') setBackstageOpen(false);
+  }, [can3d, room.phase, room.submitted.private, room.submitted.public]);
+  if (!can3d) return <div className="match-page is-immersive is-unavailable" data-layout="unavailable">
+    <section className="unavailable-panel" aria-label="3D 舞台不可用">
+      <span className="ornament" aria-hidden="true">◇</span>
+      <h1>3D 舞台不可用</h1>
+      <p>本版本只提供全屏 3D 第一视角谈判。请使用宽度至少 900px 且支持 WebGL 的桌面浏览器，并确认浏览器未关闭硬件加速。</p>
+      <div className="unavailable-meta"><strong>{room.scenario.title}</strong><span>{room.practice ? '本地陪练' : `房间 ${room.code}`}</span><span>{PHASE_NAMES[room.phase]}</span></div>
+      <div className="unavailable-actions">{finished && <button className="button-primary" onClick={onReport}>查看赛后复盘<Icon name="arrow" size={16} /></button>}<button className="button-secondary" onClick={onOpenSettings}>窗口设置</button><button className="button-secondary" onClick={onRequestLeave}>离开房间</button></div>
+    </section>
+  </div>;
+  return <div className="match-page is-immersive" data-layout="full">
+    <header className="immersive-hud" aria-label="舞台控制">
+      <div className="hud-identity"><span className="hud-brand"><span className="hud-mark" aria-hidden="true">◇</span><strong>低语代理人</strong></span><span className="hud-scenario"><strong>{room.scenario.title}</strong><small>{room.scenario.kind}</small></span><span className="hud-code">{room.practice ? '本地陪练' : `房间 ${room.code}`}</span></div>
+      <div className="hud-progress">
+        <div className="hud-act" aria-label={`第 ${room.act} 幕，共三幕`}>{ACT_NAMES.map((name, index) => <span key={name} title={name} className={index + 1 === room.act ? 'current' : index + 1 < room.act ? 'complete' : ''}><i>{index + 1 < room.act ? <Icon name="check" size={11} /> : index + 1}</i><em>{name}</em></span>)}</div>
+        <span className="hud-phase"><i className={`status-light${!connected ? ' disconnected' : ''}`} /><strong>{PHASE_NAMES[room.phase]}</strong>{seconds !== null && !finished && <span className="hud-timer"><Icon name="clock" size={13} />{seconds} 秒</span>}</span>
+      </div>
+      <div className="hud-actions">
+        {finished && <button className="hud-result" onClick={onReport}>赛后复盘<Icon name="arrow" size={14} /></button>}
+        <span className={`hud-connection${connected ? ' connected' : ''}`} role="status" title={connected ? '已连接' : '正在重连'}><i /><em>{connected ? '已连接' : '重连中'}</em></span>
+        <button aria-label={ambienceEnabled ? '关闭环境音' : '开启环境音'} aria-pressed={ambienceEnabled} className={`ambience-toggle${ambienceEnabled ? ' is-on' : ''}`} title="环境音" onClick={onToggleAmbience}><Icon name={ambienceEnabled ? 'sound' : 'muted'} size={16} /><span>{ambienceEnabled ? '环境音' : '静音'}</span></button>
+        <button aria-label="代理人语音" aria-pressed={voiceEnabled} className={voiceEnabled ? 'is-on' : ''} onClick={onToggleVoice}>{voiceEnabled ? '语音开' : '语音关'}</button>
+        <button className="icon-button" aria-label="窗口设置" onClick={onOpenSettings}><Icon name="settings" size={18} /></button>
+        <button className="icon-button" aria-label="离开房间" onClick={onRequestLeave}><Icon name="exit" size={18} /></button>
+      </div>
+    </header>
+    <div className="match-layout is-immersive">
+      <section className="public-stage is-immersive" aria-label="公开交锋">
+        <NegotiationStage room={room} connected={connected} request={request} reduceMotion={reduceMotion} targetEvent={targetEvent} voiceEnabled={voiceEnabled} onToggleVoice={onToggleVoice} on3dFailed={on3dFailed} drawerOpen={backstageOpen} ambienceEnabled={ambienceEnabled} />
+      </section>
+    </div>
+    <button className="backstage-toggle" onClick={() => setBackstageOpen(true)} aria-haspopup="dialog" aria-expanded={backstageOpen}><Icon name="lock" size={15} />幕后包厢{(room.phase === 'whisper' && !room.submitted.private || room.phase === 'public' && !room.submitted.public) && <span className="tab-dot" aria-label="可以提交耳语" />}</button>
+    {backstageOpen && <Drawer side="right" title="幕后包厢" badge="仅你可见" onClose={() => setBackstageOpen(false)} bodyClassName="backstage-body"><BackstageBody room={room} connected={connected} request={request} /></Drawer>}
   </div>;
 }
